@@ -71,16 +71,6 @@
             Password
             <input type="password" id="signupPass" required minlength="6" autocomplete="new-password" />
           </label>
-
-          <div class="softCard">
-            <h3>Admin (optional)</h3>
-            <p class="muted small">If you’re the owner/admin, enter the admin code.</p>
-            <label>
-              Admin code
-              <input type="password" id="signupAdminCode" placeholder="Leave blank if not admin" />
-            </label>
-          </div>
-
           <button class="btn primary" type="submit">Create account</button>
           <div class="error" id="signupError" aria-live="polite"></div>
         </form>
@@ -131,19 +121,9 @@
           <div class="softCard">
             <div class="softHead">
               <h3>Email notification</h3>
-              <p class="muted">Auto-enabled. Emails go to the owner.</p>
-              <p class="muted small">
-                If it fails, the booking message will show the reason (missing keys/template, etc).
-              </p>
+              <p class="muted">Optional. Sends the owner an email when a booking is made.</p>
+              <p class="muted small">If EmailJS isn’t set, booking still works.</p>
             </div>
-
-            <details>
-              <summary>EmailJS setup reminder</summary>
-              <p class="muted small">
-                In EmailJS template settings, set <b>To email</b> to <code>{{to_email}}</code>.
-                Then fill PUBLIC_KEY / SERVICE_ID / TEMPLATE_ID in <code>config.js</code>.
-              </p>
-            </details>
           </div>
         </section>
 
@@ -151,7 +131,7 @@
         <section class="view" id="viewMine">
           <div class="cardHead">
             <h2>My bookings</h2>
-            <p class="muted">Upcoming + history.</p>
+            <p class="muted">Synced across devices ✅</p>
           </div>
           <div class="list" id="myBookingsList"></div>
         </section>
@@ -160,7 +140,7 @@
         <section class="view" id="viewAdmin">
           <div class="cardHead">
             <h2>Admin dashboard</h2>
-            <p class="muted">All bookings, filters, cancel, export CSV, block slots.</p>
+            <p class="muted">All bookings + block slots + export CSV.</p>
           </div>
 
           <div class="adminGrid">
@@ -248,6 +228,6 @@
 
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
