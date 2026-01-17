@@ -74,7 +74,7 @@
 
           <div class="softCard">
             <h3>Admin (optional)</h3>
-            <p class="muted small">If you’re admin, enter the admin code to be an admin.</p>
+            <p class="muted small">If you’re the owner/admin, enter the admin code.</p>
             <label>
               Admin code
               <input type="password" id="signupAdminCode" placeholder="Leave blank if not admin" />
@@ -132,7 +132,19 @@
             <div class="softHead">
               <h3>Email notification</h3>
               <p class="muted">Auto-enabled. Emails go to the owner.</p>
+              <p class="muted small">
+                If it fails, the booking message will show the reason (missing keys/template, etc).
+              </p>
             </div>
+
+            <details>
+              <summary>EmailJS setup reminder</summary>
+              <p class="muted small">
+                In EmailJS template settings, set <b>To email</b> to <code>{{to_email}}</code>.
+                Then fill PUBLIC_KEY / SERVICE_ID / TEMPLATE_ID in <code>config.js</code>.
+              </p>
+            </details>
+          </div>
         </section>
 
         <!-- MY BOOKINGS VIEW -->

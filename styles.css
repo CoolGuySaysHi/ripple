@@ -6,14 +6,8 @@
   --text:#eaf0ff;
   --muted: rgba(234,240,255,0.72);
   --line: rgba(234,240,255,0.14);
-
   --good: rgba(123, 241, 176, 0.92);
   --bad: rgba(255, 122, 122, 0.98);
-
-  --a1:#6ee7ff;
-  --a2:#a78bfa;
-  --a3:#34d399;
-
   --shadow: 0 22px 70px rgba(0,0,0,0.42);
   --shadow2: 0 10px 32px rgba(0,0,0,0.35);
 }
@@ -181,16 +175,6 @@ label{
   color: var(--muted);
 }
 
-.inlineCheck{
-  display:flex;
-  gap:10px;
-  align-items:center;
-  padding: 10px 12px;
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 14px;
-  background: rgba(0,0,0,0.18);
-}
-
 input, select{
   width:100%;
   padding: 11px 12px;
@@ -281,17 +265,6 @@ input:focus, select:focus{
 
 .softHead{ display:flex; flex-direction:column; gap: 2px; margin-bottom: 10px; }
 
-.emailGrid{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.emailGrid .span2{ grid-column: span 2; }
-@media (max-width: 560px){
-  .emailGrid{ grid-template-columns: 1fr; }
-  .emailGrid .span2{ grid-column: span 1; }
-}
-
 details summary{
   cursor:pointer;
   color: var(--text);
@@ -364,17 +337,5 @@ details summary{
 }
 .statNum{ font-weight: 1000; font-size: 26px; }
 .statLab{ color: var(--muted); font-size: 12px; margin-top: 2px; }
-
-.miniTip{
-  display:flex;
-  gap: 10px;
-  align-items:flex-start;
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(0,0,0,0.16);
-}
-.spark{ filter: drop-shadow(0 10px 20px rgba(0,0,0,0.35)); }
 
 .foot{ margin-top:auto; text-align:center; padding: 6px 0 10px; }

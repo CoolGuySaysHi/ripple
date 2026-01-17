@@ -1,22 +1,20 @@
 // config.js
-// IMPORTANT: This is still client-side. Don't put real secrets you care about here.
-
 window.RR_CONFIG = {
   BROTHER_EMAIL: "fairfieldg2016@gmail.com",
 
-  // Admin setup:
-  // Pick a code and keep it private-ish. (Still not truly secure; it’s client-side.)
+  // Admin access code (people who enter this on signup become admin)
   ADMIN_CODE: "ripple-admin-1245",
 
-  // EmailJS (optional)
+  // EmailJS (auto-enabled)
+  // Fill these from EmailJS dashboard:
+  // Public Key, Service ID, Template ID
   EMAILJS: {
-    ENABLED: true,              // auto-enable
-    PUBLIC_KEY: "",             // e.g. "abc123"
-    SERVICE_ID: "",             // e.g. "service_xxx"
-    TEMPLATE_ID: "",            // e.g. "template_yyy"
+    ENABLED: true,
+    PUBLIC_KEY: "nlqS67-oDZI6VMHPw",      // e.g. "xYz123..."
+    SERVICE_ID: "service_vmsj1ah",      // e.g. "service_abcd12"
+    TEMPLATE_ID: "template_5sm4cpc",     // e.g. "template_efgh34"
   },
 
-  // Booking hours
   SLOTS: {
     START_HOUR: 7,
     END_HOUR: 21,

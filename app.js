@@ -1,14 +1,21 @@
+/* Ripple Relaxation — Deploy-ready static version
+   - localStorage accounts (demo auth)
+   - admin dashboard via admin code (config.js)
+   - hardcoded owner email (config.js)
+   - EmailJS auto-enabled + shows real error if it fails
+*/
+
 const CFG = window.RR_CONFIG || {};
-const BROTHER_EMAIL = CFG.BROTHER_EMAIL || "fairfieldg2016@gmail.com";
-const ADMIN_CODE = CFG.ADMIN_CODE || "";
+const BROTHER_EMAIL = (CFG.BROTHER_EMAIL || "fairfieldg2016@gmail.com").trim();
+const ADMIN_CODE = (CFG.ADMIN_CODE || "").trim();
 const EMAILCFG = CFG.EMAILJS || { ENABLED: true, PUBLIC_KEY: "", SERVICE_ID: "", TEMPLATE_ID: "" };
 const SLOT = CFG.SLOTS || { START_HOUR: 9, END_HOUR: 17, STEP_MIN: 30 };
 
 const LS = {
-  USERS: "rr_users_v3",
-  SESSION: "rr_session_v3",
-  BOOKINGS: "rr_bookings_v3",
-  BLOCKED: "rr_blocked_v3",
+  USERS: "rr_users_v4",
+  SESSION: "rr_session_v4",
+  BOOKINGS: "rr_bookings_v4",
+  BLOCKED: "rr_blocked_v4",
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -84,6 +91,7 @@ function save(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
 function nowISO() { return new Date().toISOString(); }
 
 function hashLike(str) {
+  // demo-only hashing; not secure
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
   return `h${h.toString(16)}`;
@@ -138,6 +146,7 @@ const TIMES = buildTimes();
 
 function populateTimes(selectEl, dateStr) {
   selectEl.innerHTML = "";
+
   const bookings = getBookings();
   const blocked = getBlocked();
 
@@ -320,9 +329,10 @@ bookingForm.addEventListener("submit", async (e) => {
   renderMyBookings();
   updateStats();
 
-  // Auto email attempt (if enabled + configured)
-  const didSend = await trySendEmail(booking);
-  bookSuccess.textContent = didSend ? "Booked! Email sent ✅" : "Booked! ✅";
+  const emailResult = await trySendEmail(booking);
+  bookSuccess.textContent = emailResult.ok
+    ? "Booked! Email sent ✅"
+    : `Booked! ✅ (Email: ${emailResult.reason})`;
 
   bookNotes.value = "";
 });
@@ -444,6 +454,7 @@ function renderAdmin() {
 
 function exportBookingsCsv() {
   if (!currentUser()?.isAdmin) return;
+
   const bookings = getBookings().slice().sort(
     (a,b) => new Date(`${a.date}T${a.time}:00`) - new Date(`${b.date}T${b.time}:00`)
   );
@@ -466,10 +477,12 @@ function exportBookingsCsv() {
 function blockSlot(dateStr, timeStr) {
   if (!currentUser()?.isAdmin) return;
   if (!dateStr || !timeStr) return (blockHint.textContent = "Pick a date and time.");
+
   const key = slotKey(dateStr, timeStr);
   const blocked = getBlocked();
   blocked[key] = { by: currentUser().id, at: nowISO() };
   setBlocked(blocked);
+
   blockHint.textContent = `Blocked ${dateStr} ${timeStr}.`;
   populateTimes(bookTime, bookDate.value);
   populateTimes(blockTime, blockDate.value);
@@ -479,17 +492,21 @@ function blockSlot(dateStr, timeStr) {
 function unblockSlot(dateStr, timeStr) {
   if (!currentUser()?.isAdmin) return;
   if (!dateStr || !timeStr) return (blockHint.textContent = "Pick a date and time.");
+
   const key = slotKey(dateStr, timeStr);
   const blocked = getBlocked();
   if (!blocked[key]) return (blockHint.textContent = "That slot isn’t blocked.");
+
   delete blocked[key];
   setBlocked(blocked);
+
   blockHint.textContent = `Unblocked ${dateStr} ${timeStr}.`;
   populateTimes(bookTime, bookDate.value);
   populateTimes(blockTime, blockDate.value);
   updateStats();
 }
 
+// admin events
 [adminSearch, adminStatus, adminDate].forEach(el => el.addEventListener("input", renderAdmin));
 adminClearFilters.addEventListener("click", () => {
   adminSearch.value = "";
@@ -503,15 +520,20 @@ blockSlotBtn.addEventListener("click", () => blockSlot(blockDate.value, blockTim
 unblockSlotBtn.addEventListener("click", () => unblockSlot(blockDate.value, blockTime.value));
 blockDate.addEventListener("change", () => { blockHint.textContent = ""; if (blockDate.value) populateTimes(blockTime, blockDate.value); });
 
-// ---------- email (auto) ----------
+// ---------- email (auto + debug) ----------
 async function trySendEmail(booking) {
-  if (!EMAILCFG.ENABLED) return false;
-  if (!EMAILCFG.PUBLIC_KEY || !EMAILCFG.SERVICE_ID || !EMAILCFG.TEMPLATE_ID) return false;
-  if (!window.emailjs?.init) return false;
+  if (!EMAILCFG.ENABLED) return { ok: false, reason: "disabled in config" };
+  if (!BROTHER_EMAIL) return { ok: false, reason: "owner email missing" };
+
+  if (!EMAILCFG.PUBLIC_KEY || !EMAILCFG.SERVICE_ID || !EMAILCFG.TEMPLATE_ID) {
+    return { ok: false, reason: "missing EmailJS keys (config.js)" };
+  }
+  if (!window.emailjs?.init) return { ok: false, reason: "EmailJS library not loaded" };
 
   try {
     emailjs.init(EMAILCFG.PUBLIC_KEY);
-    await emailjs.send(EMAILCFG.SERVICE_ID, EMAILCFG.TEMPLATE_ID, {
+
+    const res = await emailjs.send(EMAILCFG.SERVICE_ID, EMAILCFG.TEMPLATE_ID, {
       to_email: BROTHER_EMAIL,
       company_name: "Ripple Relaxation",
       booker_name: booking.userName,
@@ -519,11 +541,18 @@ async function trySendEmail(booking) {
       booked_date: booking.date,
       booked_time: booking.time,
       booked_notes: booking.notes || "(none)",
+      reply_to: booking.userEmail,
     });
-    return true;
+
+    return { ok: true, reason: `sent (status ${res.status})` };
   } catch (e) {
+    const msg =
+      (e && typeof e === "object" && ("text" in e) && e.text) ? e.text :
+      (e && typeof e === "object" && ("message" in e) && e.message) ? e.message :
+      String(e);
+
     console.error("Email send failed:", e);
-    return false;
+    return { ok: false, reason: msg };
   }
 }
 
