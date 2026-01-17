@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ripple Relaxation — Booking</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true">
+    <div class="orb o1"></div>
+    <div class="orb o2"></div>
+    <div class="orb o3"></div>
+  </div>
+
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">RR</div>
+        <div class="brandText">
+          <div class="name">Ripple Relaxation</div>
+          <div class="tag">Bookings</div>
+        </div>
+      </div>
+
+      <div class="topActions" id="topActions" hidden>
+        <span class="pill" id="whoami"></span>
+        <button class="btn ghost" id="logoutBtn">Log out</button>
+      </div>
+    </header>
+
+    <!-- AUTH -->
+    <main class="card auth" id="authView">
+      <div class="tabs">
+        <button class="tab active" data-tab="login">Login</button>
+        <button class="tab" data-tab="signup">Create account</button>
+      </div>
+
+      <section class="tabPanel show" id="loginPanel">
+        <h1>Welcome back</h1>
+        <p class="muted">Log in to book your chill time.</p>
+
+        <form id="loginForm" class="form">
+          <label>
+            Email
+            <input type="email" id="loginEmail" required autocomplete="email" />
+          </label>
+          <label>
+            Password
+            <input type="password" id="loginPass" required autocomplete="current-password" />
+          </label>
+          <button class="btn primary" type="submit">Log in</button>
+          <div class="error" id="loginError" aria-live="polite"></div>
+        </form>
+      </section>
+
+      <section class="tabPanel" id="signupPanel">
+        <h1>Create your account</h1>
+        <p class="muted">Create an account to start booking.</p>
+
+        <form id="signupForm" class="form">
+          <label>
+            Your name
+            <input type="text" id="signupName" required autocomplete="name" />
+          </label>
+          <label>
+            Email
+            <input type="email" id="signupEmail" required autocomplete="email" />
+          </label>
+          <label>
+            Password
+            <input type="password" id="signupPass" required minlength="6" autocomplete="new-password" />
+          </label>
+
+          <div class="softCard">
+            <h3>Admin (optional)</h3>
+            <p class="muted small">If you’re admin, enter the admin code to be an admin.</p>
+            <label>
+              Admin code
+              <input type="password" id="signupAdminCode" placeholder="Leave blank if not admin" />
+            </label>
+          </div>
+
+          <button class="btn primary" type="submit">Create account</button>
+          <div class="error" id="signupError" aria-live="polite"></div>
+        </form>
+      </section>
+    </main>
+
+    <!-- DASHBOARD -->
+    <main class="dash" id="dashView" hidden>
+
+      <section class="card">
+        <div class="segTabs" id="dashTabs">
+          <button class="seg active" data-view="book">Booking</button>
+          <button class="seg" data-view="mine">My bookings</button>
+          <button class="seg" data-view="admin" id="adminTab" hidden>Admin</button>
+        </div>
+
+        <!-- BOOKING VIEW -->
+        <section class="view show" id="viewBook">
+          <div class="cardHead">
+            <h2>Book a time</h2>
+            <p class="muted">Pick a date and slot.</p>
+          </div>
+
+          <form id="bookingForm" class="gridForm">
+            <label>
+              Date
+              <input type="date" id="bookDate" required />
+            </label>
+            <label>
+              Time
+              <select id="bookTime" required></select>
+            </label>
+
+            <label class="span2">
+              Notes (optional)
+              <input type="text" id="bookNotes" placeholder="e.g., shoulders, zen mode" maxlength="120" />
+            </label>
+
+            <div class="span2 row">
+              <button class="btn primary" type="submit">Book this slot</button>
+              <span class="hint" id="slotHint"></span>
+            </div>
+
+            <div class="error span2" id="bookError" aria-live="polite"></div>
+            <div class="success span2" id="bookSuccess" aria-live="polite"></div>
+          </form>
+
+          <div class="softCard">
+            <div class="softHead">
+              <h3>Email notification</h3>
+              <p class="muted">Auto-enabled. Emails go to your brother.</p>
+            </div>
+
+            <details>
+              <summary>EmailJS settings (optional)</summary>
+              <p class="muted small">Set these in <code>config.js</code>. (No toggles here.)</p>
+            </details>
+          </div>
+        </section>
+
+        <!-- MY BOOKINGS VIEW -->
+        <section class="view" id="viewMine">
+          <div class="cardHead">
+            <h2>My bookings</h2>
+            <p class="muted">Upcoming + history.</p>
+          </div>
+          <div class="list" id="myBookingsList"></div>
+        </section>
+
+        <!-- ADMIN VIEW -->
+        <section class="view" id="viewAdmin">
+          <div class="cardHead">
+            <h2>Admin dashboard</h2>
+            <p class="muted">All bookings, filters, cancel, export CSV, block slots.</p>
+          </div>
+
+          <div class="adminGrid">
+            <div class="softCard">
+              <h3>Filter</h3>
+              <div class="adminFilter">
+                <label>
+                  Search
+                  <input id="adminSearch" placeholder="name/email/notes…" />
+                </label>
+                <label>
+                  Status
+                  <select id="adminStatus">
+                    <option value="all">All</option>
+                    <option value="active">Active</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </label>
+                <label>
+                  Date
+                  <input type="date" id="adminDate" />
+                </label>
+
+                <div class="row span2">
+                  <button class="btn ghost" id="adminClearFilters" type="button">Clear</button>
+                  <button class="btn" id="adminExportCsv" type="button">Export CSV</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="softCard">
+              <h3>Block a slot</h3>
+              <div class="adminFilter">
+                <label>
+                  Date
+                  <input type="date" id="blockDate" />
+                </label>
+                <label>
+                  Time
+                  <select id="blockTime"></select>
+                </label>
+
+                <div class="row span2">
+                  <button class="btn primary" id="blockSlotBtn" type="button">Block</button>
+                  <button class="btn ghost" id="unblockSlotBtn" type="button">Unblock</button>
+                </div>
+
+                <div class="hint small span2" id="blockHint"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="softCard">
+            <h3>All bookings</h3>
+            <div class="list" id="adminBookingsList"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="side">
+        <div class="card">
+          <h3>Today</h3>
+          <p class="muted" id="todayLine"></p>
+          <hr class="sep" />
+          <h3>Quick stats</h3>
+          <div class="stats">
+            <div class="stat">
+              <div class="statNum" id="statActive">0</div>
+              <div class="statLab">Active bookings</div>
+            </div>
+            <div class="stat">
+              <div class="statNum" id="statBlocked">0</div>
+              <div class="statLab">Blocked slots</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="foot">
+      <span class="muted small">Ripple Relaxation © <span id="year"></span> — chill responsibly 🫧</span>
+    </footer>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
