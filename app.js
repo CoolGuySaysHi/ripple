@@ -1,3 +1,6 @@
+// app.js (Firebase + Firestore + Firestore-hardcoded admin)
+// Requires: <script type="module" src="app.js"></script>
+
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
   getAuth,
@@ -22,15 +25,15 @@ import {
   serverTimestamp,
   runTransaction,
   updateDoc,
-  getDocs
+  getDocs,
+  deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 // ---------- config ----------
 const CFG = window.RR_CONFIG || {};
-const OWNER_EMAIL = (CFG.OWNER_EMAIL || "").trim();
-const ADMIN_EMAILS = (CFG.ADMIN_EMAILS || []).map(e => String(e).toLowerCase().trim());
+const OWNER_EMAIL = (CFG.OWNER_EMAIL || CFG.BROTHER_EMAIL || "").trim();
 const EMAILCFG = CFG.EMAILJS || { ENABLED: true, PUBLIC_KEY: "", SERVICE_ID: "", TEMPLATE_ID: "" };
-const SLOT = CFG.SLOTS || { START_HOUR: 9, END_HOUR: 17, STEP_MIN: 30 };
+const SLOT = CFG.SLOTS || { START_HOUR: 7, END_HOUR: 21, STEP_MIN: 30 };
 
 if (!CFG.FIREBASE?.apiKey) {
   alert("Firebase config missing. Paste FIREBASE config into config.js");
@@ -97,17 +100,22 @@ const blockSlotBtn = $("#blockSlotBtn");
 const unblockSlotBtn = $("#unblockSlotBtn");
 const blockHint = $("#blockHint");
 
-$("#year").textContent = new Date().getFullYear();
+const yearEl = $("#year");
+if (yearEl) yearEl.textContent = new Date().getFullYear();
 
 // ---------- state ----------
 let unsubMyBookings = null;
 let unsubAllBookings = null;
-let unsubBlocked = null;
+let cachedIsAdmin = false;
 
 // ---------- utils ----------
-function isAdminUser(user) {
-  const email = (user?.email || "").toLowerCase().trim();
-  return ADMIN_EMAILS.includes(email);
+function escapeHtml(str) {
+  return (str || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function toDateInputValue(d) {
@@ -122,17 +130,7 @@ function parseDateInput(val) {
   return new Date(y, (m - 1), d, 0, 0, 0, 0);
 }
 
-function escapeHtml(str) {
-  return (str || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 function slotId(dateStr, timeStr) {
-  // unique slot id for bookings & blocked
   return `${dateStr}__${timeStr}`;
 }
 
@@ -149,28 +147,47 @@ function buildTimes() {
 const TIMES = buildTimes();
 
 function setTodayLine() {
+  if (!todayLine) return;
   const d = new Date();
-  todayLine.textContent = d.toLocaleDateString(undefined, { weekday:"long", year:"numeric", month:"long", day:"numeric" });
+  todayLine.textContent = d.toLocaleDateString(undefined, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 }
 
+// ---------- UI navigation ----------
 function setDashView(which) {
+  if (!dashTabs) return;
+
   for (const b of dashTabs.querySelectorAll(".seg")) b.classList.remove("active");
   dashTabs.querySelector(`.seg[data-view="${which}"]`)?.classList.add("active");
 
-  [viewBook, viewMine, viewAdmin].forEach(v => v.classList.remove("show"));
-  if (which === "mine") viewMine.classList.add("show");
-  else if (which === "admin") viewAdmin.classList.add("show");
-  else viewBook.classList.add("show");
+  [viewBook, viewMine, viewAdmin].forEach(v => v?.classList.remove("show"));
+  if (which === "mine") viewMine?.classList.add("show");
+  else if (which === "admin") viewAdmin?.classList.add("show");
+  else viewBook?.classList.add("show");
 }
 
-// ---------- auth tabs ----------
+dashTabs?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".seg");
+  if (!btn) return;
+  const which = btn.dataset.view;
+  if (which === "admin" && !cachedIsAdmin) return;
+  setDashView(which);
+});
+
+// ---------- auth tab switching ----------
 tabs.forEach(btn => {
   btn.addEventListener("click", () => {
     tabs.forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    const tab = btn.dataset.tab;
+
     loginError.textContent = "";
     signupError.textContent = "";
+
+    const tab = btn.dataset.tab;
     if (tab === "login") {
       loginPanel.classList.add("show");
       signupPanel.classList.remove("show");
@@ -181,57 +198,24 @@ tabs.forEach(btn => {
   });
 });
 
-// ---------- auth handlers ----------
-signupForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  signupError.textContent = "";
+// ---------- Firestore-hardcoded admin check ----------
+async function checkAdmin(user) {
+  cachedIsAdmin = false;
+  if (!user?.email) return false;
 
-  const name = signupName.value.trim();
-  const email = signupEmail.value.trim();
-  const pass = signupPass.value;
+  const email = user.email.toLowerCase().trim();
+  const adminRef = doc(db, "admins", email);
+  const snap = await getDoc(adminRef);
 
-  if (!name) return (signupError.textContent = "Please enter your name.");
-  if (!email) return (signupError.textContent = "Please enter an email.");
-  if (!pass || pass.length < 6) return (signupError.textContent = "Password must be at least 6 characters.");
+  cachedIsAdmin = snap.exists();
+  return cachedIsAdmin;
+}
 
-  try {
-    const cred = await createUserWithEmailAndPassword(auth, email, pass);
-    await updateProfile(cred.user, { displayName: name });
-
-    // store public profile (optional)
-    await setDoc(doc(db, "users", cred.user.uid), {
-      name,
-      email: (cred.user.email || "").toLowerCase(),
-      createdAt: serverTimestamp()
-    }, { merge: true });
-
-  } catch (err) {
-    signupError.textContent = err?.message || String(err);
-  }
-});
-
-loginForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  loginError.textContent = "";
-
-  const email = loginEmail.value.trim();
-  const pass = loginPass.value;
-
-  try {
-    await signInWithEmailAndPassword(auth, email, pass);
-  } catch (err) {
-    loginError.textContent = err?.message || String(err);
-  }
-});
-
-logoutBtn.addEventListener("click", async () => {
-  await signOut(auth);
-});
-
-// ---------- email (optional) ----------
+// ---------- Email (optional) ----------
 async function trySendEmail(booking) {
   if (!EMAILCFG?.ENABLED) return { ok: false, reason: "disabled" };
-  if (!OWNER_EMAIL) return { ok: false, reason: "owner email missing" };
+  if (!OWNER_EMAIL) return { ok: false, reason: "owner email missing in config.js" };
+
   if (!EMAILCFG.PUBLIC_KEY || !EMAILCFG.SERVICE_ID || !EMAILCFG.TEMPLATE_ID) {
     return { ok: false, reason: "EmailJS not configured (config.js)" };
   }
@@ -247,7 +231,7 @@ async function trySendEmail(booking) {
       booked_date: booking.date,
       booked_time: booking.time,
       booked_notes: booking.notes || "(none)",
-      reply_to: booking.userEmail
+      reply_to: booking.userEmail,
     });
     return { ok: true, reason: `sent (status ${res.status})` };
   } catch (e) {
@@ -255,20 +239,23 @@ async function trySendEmail(booking) {
       (e && typeof e === "object" && ("text" in e) && e.text) ? e.text :
       (e && typeof e === "object" && ("message" in e) && e.message) ? e.message :
       String(e);
-    console.error(e);
+    console.error("EmailJS failed:", e);
     return { ok: false, reason: msg };
   }
 }
 
-// ---------- bookings + blocked (realtime) ----------
+// ---------- slot dropdown ----------
 async function refreshSlotDropdown(dateStr) {
-  // fetch bookings for that day + blocked for that day (via queries)
-  // for simplicity: read all active bookings that day (small dataset)
+  if (!dateStr) return;
+
+  // Get active bookings for this date
   const bookingsQ = query(
     collection(db, "bookings"),
     where("date", "==", dateStr),
     where("status", "==", "active")
   );
+
+  // Get blocked slots for this date
   const blockedQ = query(
     collection(db, "blockedSlots"),
     where("date", "==", dateStr)
@@ -283,12 +270,16 @@ async function refreshSlotDropdown(dateStr) {
   let available = 0;
 
   for (const t of TIMES) {
-    const isTaken = taken.has(t) || blocked.has(t);
+    const isBlocked = blocked.has(t);
+    const isTaken = taken.has(t);
+    const disabled = isBlocked || isTaken;
+
     const opt = document.createElement("option");
     opt.value = t;
-    opt.disabled = isTaken;
-    opt.textContent = t + (blocked.has(t) ? " (blocked)" : (taken.has(t) ? " (taken)" : ""));
-    if (!isTaken) available++;
+    opt.disabled = disabled;
+    opt.textContent = t + (isBlocked ? " (blocked)" : (isTaken ? " (taken)" : ""));
+
+    if (!disabled) available++;
     bookTime.appendChild(opt);
   }
 
@@ -298,7 +289,19 @@ async function refreshSlotDropdown(dateStr) {
   if (firstEnabled) bookTime.value = firstEnabled.value;
 }
 
-bookingForm.addEventListener("submit", async (e) => {
+function populateBlockTimes() {
+  if (!blockTime) return;
+  blockTime.innerHTML = "";
+  for (const t of TIMES) {
+    const opt = document.createElement("option");
+    opt.value = t;
+    opt.textContent = t;
+    blockTime.appendChild(opt);
+  }
+}
+
+// ---------- booking submit (transaction prevents double booking) ----------
+bookingForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   bookError.textContent = "";
   bookSuccess.textContent = "";
@@ -318,11 +321,10 @@ bookingForm.addEventListener("submit", async (e) => {
   chosen.setHours(hh, mm, 0, 0);
   if (chosen.getTime() < Date.now() - 30_000) return (bookError.textContent = "That time is in the past.");
 
-  const slotDocId = slotId(dateStr, timeStr);
-  const bookingRef = doc(db, "bookings", slotDocId);
-  const blockedRef = doc(db, "blockedSlots", slotDocId);
+  const id = slotId(dateStr, timeStr);
+  const bookingRef = doc(db, "bookings", id);
+  const blockedRef = doc(db, "blockedSlots", id);
 
-  // Transaction prevents double-booking
   try {
     await runTransaction(db, async (tx) => {
       const blockedSnap = await tx.get(blockedRef);
@@ -334,7 +336,7 @@ bookingForm.addEventListener("submit", async (e) => {
       }
 
       tx.set(bookingRef, {
-        id: slotDocId,
+        id,
         date: dateStr,
         time: timeStr,
         notes: notes || "",
@@ -342,7 +344,7 @@ bookingForm.addEventListener("submit", async (e) => {
         userId: user.uid,
         userName: user.displayName || "Unknown",
         userEmail: (user.email || "").toLowerCase(),
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
       });
     });
 
@@ -361,14 +363,14 @@ bookingForm.addEventListener("submit", async (e) => {
       : `Booked! ✅ (Email: ${emailRes.reason})`;
 
     bookNotes.value = "";
-
+    await updateStats();
   } catch (err) {
     bookError.textContent = err?.message || String(err);
     await refreshSlotDropdown(dateStr);
   }
 });
 
-// My bookings realtime
+// ---------- my bookings realtime ----------
 function subscribeMyBookings(uid) {
   if (unsubMyBookings) unsubMyBookings();
 
@@ -376,12 +378,12 @@ function subscribeMyBookings(uid) {
     collection(db, "bookings"),
     where("userId", "==", uid),
     orderBy("date", "desc"),
-    limit(100)
+    limit(200)
   );
 
   unsubMyBookings = onSnapshot(qMine, (snap) => {
     const items = snap.docs.map(d => d.data())
-      .sort((a,b) => (a.date + a.time).localeCompare(b.date + b.time));
+      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 
     myBookingsList.innerHTML = "";
     if (!items.length) {
@@ -412,37 +414,24 @@ function subscribeMyBookings(uid) {
         const snap = await getDoc(ref);
         if (!snap.exists()) return;
         if (snap.data().userId !== auth.currentUser.uid) return;
+
         await updateDoc(ref, { status: "cancelled", cancelledAt: serverTimestamp() });
         await refreshSlotDropdown(bookDate.value);
+        await updateStats();
       });
     });
   });
 }
 
-// Admin realtime (all bookings)
-function subscribeAllBookings() {
-  if (unsubAllBookings) unsubAllBookings();
-
-  const qAll = query(collection(db, "bookings"), orderBy("date", "desc"), limit(200));
-  unsubAllBookings = onSnapshot(qAll, () => renderAdminList());
-}
-
-function subscribeBlocked() {
-  if (unsubBlocked) unsubBlocked();
-  const qBlk = query(collection(db, "blockedSlots"), orderBy("date", "desc"), limit(300));
-  unsubBlocked = onSnapshot(qBlk, () => updateStats());
-}
-
+// ---------- admin list (query + filter) ----------
 async function renderAdminList() {
-  const user = auth.currentUser;
-  if (!user || !isAdminUser(user)) return;
+  if (!cachedIsAdmin) return;
 
   const qText = (adminSearch.value || "").trim().toLowerCase();
   const status = adminStatus.value;
   const date = adminDate.value;
 
-  // For simplicity: read latest 500 bookings and filter client-side (fine for small apps)
-  const snap = await getDocs(query(collection(db, "bookings"), orderBy("date", "desc"), limit(500)));
+  const snap = await getDocs(query(collection(db, "bookings"), orderBy("date", "desc"), limit(800)));
   let items = snap.docs.map(d => d.data());
 
   if (status !== "all") items = items.filter(b => b.status === status);
@@ -454,8 +443,7 @@ async function renderAdminList() {
     });
   }
 
-  // sort ascending for readability
-  items.sort((a,b) => (a.date + a.time).localeCompare(b.date + b.time));
+  items.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 
   adminBookingsList.innerHTML = "";
   if (!items.length) {
@@ -485,32 +473,34 @@ async function renderAdminList() {
       const id = btn.dataset.adminCancel;
       await updateDoc(doc(db, "bookings", id), { status: "cancelled", cancelledAt: serverTimestamp() });
       await refreshSlotDropdown(bookDate.value);
+      await updateStats();
     });
   });
 }
 
-async function updateStats() {
-  // active bookings count (simple)
-  const activeSnap = await getDocs(query(collection(db, "bookings"), where("status", "==", "active")));
-  const blockedSnap = await getDocs(query(collection(db, "blockedSlots")));
-  statActive.textContent = String(activeSnap.size);
-  statBlocked.textContent = String(blockedSnap.size);
+function subscribeAllBookingsIfAdmin() {
+  if (unsubAllBookings) unsubAllBookings();
+  if (!cachedIsAdmin) return;
+
+  const qAll = query(collection(db, "bookings"), orderBy("date", "desc"), limit(200));
+  unsubAllBookings = onSnapshot(qAll, () => renderAdminList());
 }
 
-// Admin block/unblock
-async function populateBlockTimes(dateStr) {
-  blockTime.innerHTML = "";
-  for (const t of TIMES) {
-    const opt = document.createElement("option");
-    opt.value = t;
-    opt.textContent = t;
-    blockTime.appendChild(opt);
+// ---------- stats ----------
+async function updateStats() {
+  try {
+    const activeSnap = await getDocs(query(collection(db, "bookings"), where("status", "==", "active")));
+    const blockedSnap = await getDocs(query(collection(db, "blockedSlots"), limit(1000)));
+    statActive.textContent = String(activeSnap.size);
+    statBlocked.textContent = String(blockedSnap.size);
+  } catch (e) {
+    console.warn("Stats failed:", e);
   }
 }
 
-blockSlotBtn.addEventListener("click", async () => {
-  const user = auth.currentUser;
-  if (!user || !isAdminUser(user)) return;
+// ---------- admin block/unblock ----------
+blockSlotBtn?.addEventListener("click", async () => {
+  if (!cachedIsAdmin) return;
 
   const d = blockDate.value;
   const t = blockTime.value;
@@ -521,35 +511,18 @@ blockSlotBtn.addEventListener("click", async () => {
     id,
     date: d,
     time: t,
-    blockedBy: user.uid,
-    blockedByEmail: (user.email || "").toLowerCase(),
+    blockedBy: auth.currentUser.uid,
+    blockedByEmail: (auth.currentUser.email || "").toLowerCase(),
     createdAt: serverTimestamp()
   });
+
   blockHint.textContent = `Blocked ${d} ${t}.`;
   await refreshSlotDropdown(bookDate.value);
   await updateStats();
 });
 
-unblockSlotBtn.addEventListener("click", async () => {
-  const user = auth.currentUser;
-  if (!user || !isAdminUser(user)) return;
-
-  const d = blockDate.value;
-  const t = blockTime.value;
-  if (!d || !t) return;
-
-  const id = slotId(d, t);
-  // easiest unblock: set deleted flag? We'll actually delete by overwriting with status? (Firestore delete not imported)
-  // We'll "soft delete" by setting a field; rules still allow reading. For UI, we treat exists as blocked.
-  // Better: import deleteDoc. We'll do that properly:
-});
-
-
-// (small patch: deleteDoc import)
-import { deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
-unblockSlotBtn.addEventListener("click", async () => {
-  const user = auth.currentUser;
-  if (!user || !isAdminUser(user)) return;
+unblockSlotBtn?.addEventListener("click", async () => {
+  if (!cachedIsAdmin) return;
 
   const d = blockDate.value;
   const t = blockTime.value;
@@ -557,24 +530,25 @@ unblockSlotBtn.addEventListener("click", async () => {
 
   const id = slotId(d, t);
   await deleteDoc(doc(db, "blockedSlots", id));
+
   blockHint.textContent = `Unblocked ${d} ${t}.`;
   await refreshSlotDropdown(bookDate.value);
   await updateStats();
 });
 
-// Admin filters
-[adminSearch, adminStatus, adminDate].forEach(el => el.addEventListener("input", renderAdminList));
-adminClearFilters.addEventListener("click", () => {
+// Admin filters & export
+[adminSearch, adminStatus, adminDate].forEach(el => el?.addEventListener("input", renderAdminList));
+adminClearFilters?.addEventListener("click", () => {
   adminSearch.value = "";
   adminStatus.value = "all";
   adminDate.value = "";
   renderAdminList();
 });
-adminExportCsv.addEventListener("click", async () => {
-  const user = auth.currentUser;
-  if (!user || !isAdminUser(user)) return;
 
-  const snap = await getDocs(query(collection(db, "bookings"), orderBy("date", "asc")));
+adminExportCsv?.addEventListener("click", async () => {
+  if (!cachedIsAdmin) return;
+
+  const snap = await getDocs(query(collection(db, "bookings"), orderBy("date", "asc"), limit(5000)));
   const rows = snap.docs.map(d => d.data());
 
   const header = ["id","status","date","time","userName","userEmail","notes"];
@@ -594,63 +568,98 @@ adminExportCsv.addEventListener("click", async () => {
   URL.revokeObjectURL(url);
 });
 
-// Date change
-bookDate.addEventListener("change", async () => {
+// Date changes
+bookDate?.addEventListener("change", async () => {
   bookError.textContent = "";
   bookSuccess.textContent = "";
   await refreshSlotDropdown(bookDate.value);
 });
 
-// Dashboard tabs
-dashTabs.addEventListener("click", (e) => {
-  const btn = e.target.closest(".seg");
-  if (!btn) return;
-  const which = btn.dataset.view;
+// ---------- signup/login ----------
+signupForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  signupError.textContent = "";
 
-  if (which === "admin" && !isAdminUser(auth.currentUser)) return;
-  setDashView(which);
+  const name = signupName.value.trim();
+  const email = signupEmail.value.trim();
+  const pass = signupPass.value;
+
+  if (!name) return (signupError.textContent = "Please enter your name.");
+  if (!email) return (signupError.textContent = "Please enter an email.");
+  if (!pass || pass.length < 6) return (signupError.textContent = "Password must be at least 6 characters.");
+
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    await updateProfile(cred.user, { displayName: name });
+
+    await setDoc(doc(db, "users", cred.user.uid), {
+      name,
+      email: (cred.user.email || "").toLowerCase(),
+      createdAt: serverTimestamp(),
+    }, { merge: true });
+
+  } catch (err) {
+    signupError.textContent = err?.message || String(err);
+  }
 });
 
-// ---------- main auth state ----------
+loginForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  loginError.textContent = "";
+
+  const email = loginEmail.value.trim();
+  const pass = loginPass.value;
+
+  try {
+    await signInWithEmailAndPassword(auth, email, pass);
+  } catch (err) {
+    loginError.textContent = err?.message || String(err);
+  }
+});
+
+logoutBtn?.addEventListener("click", async () => {
+  await signOut(auth);
+});
+
+// ---------- auth state ----------
 onAuthStateChanged(auth, async (user) => {
+  // cleanup subscriptions
+  if (unsubMyBookings) { unsubMyBookings(); unsubMyBookings = null; }
+  if (unsubAllBookings) { unsubAllBookings(); unsubAllBookings = null; }
+  cachedIsAdmin = false;
+
   if (!user) {
     authView.hidden = false;
     dashView.hidden = true;
     topActions.hidden = true;
-
-    if (unsubMyBookings) unsubMyBookings();
-    if (unsubAllBookings) unsubAllBookings();
-    if (unsubBlocked) unsubBlocked();
-    unsubMyBookings = unsubAllBookings = unsubBlocked = null;
+    adminTab.hidden = true;
     return;
   }
+
+  // Determine admin from Firestore (admins/{email})
+  await checkAdmin(user);
 
   authView.hidden = true;
   dashView.hidden = false;
   topActions.hidden = false;
 
-  const admin = isAdminUser(user);
-  adminTab.hidden = !admin;
+  adminTab.hidden = !cachedIsAdmin;
 
-  whoami.textContent = `${user.displayName || "User"}${admin ? " • Admin" : ""} • ${user.email}`;
+  whoami.textContent = `${user.displayName || "User"}${cachedIsAdmin ? " • Admin" : ""} • ${user.email}`;
 
   const today = new Date();
   bookDate.min = toDateInputValue(today);
   if (!bookDate.value) bookDate.value = toDateInputValue(today);
   if (!blockDate.value) blockDate.value = toDateInputValue(today);
 
-  await refreshSlotDropdown(bookDate.value);
-  await populateBlockTimes(blockDate.value);
-
   setTodayLine();
+  populateBlockTimes();
+
+  await refreshSlotDropdown(bookDate.value);
   await updateStats();
 
   subscribeMyBookings(user.uid);
-  subscribeBlocked();
-  if (admin) {
-    subscribeAllBookings();
-    renderAdminList();
-  }
+  subscribeAllBookingsIfAdmin();
 
   setDashView("book");
 });

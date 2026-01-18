@@ -2,12 +2,6 @@
 window.RR_CONFIG = {
   OWNER_EMAIL: "fairfieldg2016@gmail.com",
 
-  // Admins (simple + works without backend custom claims)
-  // Put your brother's email here (and yours if you want).
-  ADMIN_EMAILS: [
-    "fairfieldg2016@gmail.com"
-  ],
-
   // Firebase web app config (paste from Firebase console)
   FIREBASE: {
     apiKey: "AIzaSyBZ9BX4bRJA_BCgmtrrHnjX2L1aBpnr2QE",
