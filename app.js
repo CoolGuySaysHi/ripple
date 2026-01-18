@@ -1,5 +1,9 @@
-// app.js (Firebase + Firestore + Firestore-hardcoded admin)
-// Requires: <script type="module" src="app.js"></script>
+// app.js — Ripple Relaxation Booking (Firebase + Firestore + Admin + Services Manager + EmailJS)
+//
+// Needs in index.html:
+// <script src="config.js"></script>
+// <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+// <script type="module" src="app.js"></script>
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
@@ -29,33 +33,44 @@ import {
   deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
-// ---------- config ----------
+// -------------------- CONFIG --------------------
 const CFG = window.RR_CONFIG || {};
-const OWNER_EMAIL = (CFG.OWNER_EMAIL || CFG.BROTHER_EMAIL || "").trim();
-const EMAILCFG = CFG.EMAILJS || { ENABLED: true, PUBLIC_KEY: "", SERVICE_ID: "", TEMPLATE_ID: "" };
-const SLOT = CFG.SLOTS || { START_HOUR: 7, END_HOUR: 21, STEP_MIN: 30 };
-
 if (!CFG.FIREBASE?.apiKey) {
   alert("Firebase config missing. Paste FIREBASE config into config.js");
 }
 
+const OWNER_EMAIL = (CFG.OWNER_EMAIL || CFG.BROTHER_EMAIL || "").trim();
+const EMAILCFG = CFG.EMAILJS || { ENABLED: true, PUBLIC_KEY: "", SERVICE_ID: "", TEMPLATE_ID: "" };
+
+const SLOT = CFG.SLOTS || { START_HOUR: 9, END_HOUR: 17, STEP_MIN: 30 };
+const DURATION = CFG.DURATION || { MIN_MINUTES: 5, MAX_MINUTES: 120, STEP_MINUTES: 5 };
+
+// Default master list (your requested set). Admin can add more later.
+const DEFAULT_SERVICES = Array.isArray(CFG.SERVICES) && CFG.SERVICES.length
+  ? CFG.SERVICES
+  : ["Eye Pads", "Steam Eye Mask", "Candle", "Sprays", "Foot Mask", "Fan", "Refreshment"];
+
+// -------------------- FIREBASE INIT --------------------
 const app = initializeApp(CFG.FIREBASE);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// ---------- dom ----------
+// -------------------- DOM --------------------
 const $ = (s) => document.querySelector(s);
 
+// Views
 const authView = $("#authView");
 const dashView = $("#dashView");
 const topActions = $("#topActions");
 const whoami = $("#whoami");
 const logoutBtn = $("#logoutBtn");
 
+// Auth tabs
 const tabs = document.querySelectorAll(".tab");
 const loginPanel = $("#loginPanel");
 const signupPanel = $("#signupPanel");
 
+// Auth forms
 const loginForm = $("#loginForm");
 const loginEmail = $("#loginEmail");
 const loginPass = $("#loginPass");
@@ -67,26 +82,38 @@ const signupEmail = $("#signupEmail");
 const signupPass = $("#signupPass");
 const signupError = $("#signupError");
 
+// Dashboard tabs + views
 const dashTabs = $("#dashTabs");
 const adminTab = $("#adminTab");
 const viewBook = $("#viewBook");
 const viewMine = $("#viewMine");
 const viewAdmin = $("#viewAdmin");
 
+// Booking form
 const bookingForm = $("#bookingForm");
 const bookDate = $("#bookDate");
 const bookTime = $("#bookTime");
+const bookDuration = $("#bookDuration");
 const bookNotes = $("#bookNotes");
 const bookError = $("#bookError");
 const bookSuccess = $("#bookSuccess");
 const slotHint = $("#slotHint");
 
+// Services multi-select (tickbox dropdown)
+const servicesWrap = $("#servicesWrap");
+const servicesBtn = $("#servicesBtn");
+const servicesMenu = $("#servicesMenu");
+const servicesHidden = $("#servicesHidden");
+
+// My bookings
 const myBookingsList = $("#myBookingsList");
 
+// Side stats
 const todayLine = $("#todayLine");
 const statActive = $("#statActive");
 const statBlocked = $("#statBlocked");
 
+// Admin list/filter/export
 const adminSearch = $("#adminSearch");
 const adminStatus = $("#adminStatus");
 const adminDate = $("#adminDate");
@@ -94,21 +121,41 @@ const adminClearFilters = $("#adminClearFilters");
 const adminExportCsv = $("#adminExportCsv");
 const adminBookingsList = $("#adminBookingsList");
 
+// Admin block/unblock
 const blockDate = $("#blockDate");
 const blockTime = $("#blockTime");
 const blockSlotBtn = $("#blockSlotBtn");
 const unblockSlotBtn = $("#unblockSlotBtn");
 const blockHint = $("#blockHint");
 
+// Admin services manager
+const adminServicesList = $("#adminServicesList");
+const saveServicesBtn = $("#saveServicesBtn");
+const servicesSaveHint = $("#servicesSaveHint");
+const newServiceInput = $("#newServiceInput");
+const addServiceBtn = $("#addServiceBtn");
+const addServiceHint = $("#addServiceHint");
+
+// Footer year (optional)
 const yearEl = $("#year");
 if (yearEl) yearEl.textContent = new Date().getFullYear();
 
-// ---------- state ----------
-let unsubMyBookings = null;
-let unsubAllBookings = null;
+// -------------------- STATE --------------------
 let cachedIsAdmin = false;
 
-// ---------- utils ----------
+let unsubMyBookings = null;
+let unsubAllBookings = null;
+let unsubServicesSettings = null;
+
+// Booking form selections
+const selectedServices = new Set();
+
+// Firestore-backed services
+let allServices = new Set(DEFAULT_SERVICES);
+let enabledServices = new Set(DEFAULT_SERVICES);
+const settingsServicesRef = doc(db, "settings", "services");
+
+// -------------------- HELPERS --------------------
 function escapeHtml(str) {
   return (str || "")
     .replaceAll("&", "&amp;")
@@ -150,14 +197,10 @@ function setTodayLine() {
   if (!todayLine) return;
   const d = new Date();
   todayLine.textContent = d.toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
 }
 
-// ---------- UI navigation ----------
 function setDashView(which) {
   if (!dashTabs) return;
 
@@ -170,15 +213,7 @@ function setDashView(which) {
   else viewBook?.classList.add("show");
 }
 
-dashTabs?.addEventListener("click", (e) => {
-  const btn = e.target.closest(".seg");
-  if (!btn) return;
-  const which = btn.dataset.view;
-  if (which === "admin" && !cachedIsAdmin) return;
-  setDashView(which);
-});
-
-// ---------- auth tab switching ----------
+// -------------------- AUTH TAB SWITCH --------------------
 tabs.forEach(btn => {
   btn.addEventListener("click", () => {
     tabs.forEach(b => b.classList.remove("active"));
@@ -198,7 +233,7 @@ tabs.forEach(btn => {
   });
 });
 
-// ---------- Firestore-hardcoded admin check ----------
+// -------------------- ADMIN CHECK (Firestore: admins/{email}) --------------------
 async function checkAdmin(user) {
   cachedIsAdmin = false;
   if (!user?.email) return false;
@@ -211,8 +246,8 @@ async function checkAdmin(user) {
   return cachedIsAdmin;
 }
 
-// ---------- Email (optional) ----------
-async function trySendEmail(booking) {
+// -------------------- EMAILJS (optional) --------------------
+async function trySendEmail(payload) {
   if (!EMAILCFG?.ENABLED) return { ok: false, reason: "disabled" };
   if (!OWNER_EMAIL) return { ok: false, reason: "owner email missing in config.js" };
 
@@ -223,16 +258,7 @@ async function trySendEmail(booking) {
 
   try {
     emailjs.init(EMAILCFG.PUBLIC_KEY);
-    const res = await emailjs.send(EMAILCFG.SERVICE_ID, EMAILCFG.TEMPLATE_ID, {
-      to_email: OWNER_EMAIL,
-      company_name: "Ripple Relaxation",
-      booker_name: booking.userName,
-      booker_email: booking.userEmail,
-      booked_date: booking.date,
-      booked_time: booking.time,
-      booked_notes: booking.notes || "(none)",
-      reply_to: booking.userEmail,
-    });
+    const res = await emailjs.send(EMAILCFG.SERVICE_ID, EMAILCFG.TEMPLATE_ID, payload);
     return { ok: true, reason: `sent (status ${res.status})` };
   } catch (e) {
     const msg =
@@ -244,18 +270,221 @@ async function trySendEmail(booking) {
   }
 }
 
-// ---------- slot dropdown ----------
-async function refreshSlotDropdown(dateStr) {
-  if (!dateStr) return;
+// -------------------- DURATION DROPDOWN (5-min steps) --------------------
+function populateDurationDropdown() {
+  if (!bookDuration) return;
+  bookDuration.innerHTML = "";
 
-  // Get active bookings for this date
+  const min = Math.max(5, Number(DURATION.MIN_MINUTES || 5));
+  const max = Math.max(min, Number(DURATION.MAX_MINUTES || 120));
+  const step = Math.max(5, Number(DURATION.STEP_MINUTES || 5));
+
+  for (let mins = min; mins <= max; mins += step) {
+    const opt = document.createElement("option");
+    opt.value = String(mins);
+    opt.textContent = `${mins} minutes`;
+    bookDuration.appendChild(opt);
+  }
+
+  const preferred = [...bookDuration.options].find(o => o.value === "30");
+  if (preferred) bookDuration.value = "30";
+}
+
+// -------------------- SERVICES MULTI-SELECT --------------------
+function updateServicesButton() {
+  const arr = [...selectedServices];
+  if (!servicesBtn) return;
+
+  if (!arr.length) {
+    servicesBtn.textContent = "Select services…";
+    if (servicesHidden) servicesHidden.value = "";
+    return;
+  }
+  const label = arr.length <= 2 ? arr.join(", ") : `${arr.length} selected`;
+  servicesBtn.textContent = label;
+  if (servicesHidden) servicesHidden.value = "ok";
+}
+
+function renderServicesMenu() {
+  if (!servicesMenu) return;
+  servicesMenu.innerHTML = "";
+
+  const list = [...enabledServices].sort((a, b) => a.localeCompare(b));
+
+  for (const name of list) {
+    const id = `svc_${name.replaceAll(" ", "_").replaceAll("&", "and")}`;
+
+    const row = document.createElement("label");
+    row.className = "multiItem";
+    row.htmlFor = id;
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.id = id;
+    cb.checked = selectedServices.has(name);
+
+    const text = document.createElement("div");
+    text.textContent = name;
+
+    cb.addEventListener("change", () => {
+      if (cb.checked) selectedServices.add(name);
+      else selectedServices.delete(name);
+      updateServicesButton();
+    });
+
+    row.appendChild(cb);
+    row.appendChild(text);
+    servicesMenu.appendChild(row);
+  }
+
+  updateServicesButton();
+}
+
+function openServicesMenu(open) {
+  if (!servicesMenu) return;
+  servicesMenu.hidden = !open;
+  if (open) renderServicesMenu();
+}
+
+servicesBtn?.addEventListener("click", () => openServicesMenu(servicesMenu.hidden));
+
+document.addEventListener("click", (e) => {
+  if (!servicesMenu || servicesMenu.hidden) return;
+  if (servicesWrap && !servicesWrap.contains(e.target)) openServicesMenu(false);
+});
+
+// -------------------- SERVICES SETTINGS (Firestore: settings/services) --------------------
+function subscribeServicesSettings() {
+  return onSnapshot(settingsServicesRef, (snap) => {
+    const data = snap.exists() ? snap.data() : {};
+
+    const all = Array.isArray(data.allServices) && data.allServices.length
+      ? data.allServices
+      : DEFAULT_SERVICES;
+
+    const enabled = Array.isArray(data.enabledServices) && data.enabledServices.length
+      ? data.enabledServices
+      : all;
+
+    allServices = new Set(all);
+    enabledServices = new Set(enabled);
+
+    // remove selections no longer enabled
+    for (const s of [...selectedServices]) {
+      if (!enabledServices.has(s)) selectedServices.delete(s);
+    }
+
+    renderServicesMenu();
+    updateServicesButton();
+
+    if (cachedIsAdmin) renderAdminServicesUI();
+  });
+}
+
+// Admin services UI render
+function renderAdminServicesUI() {
+  if (!cachedIsAdmin || !adminServicesList) return;
+
+  adminServicesList.innerHTML = "";
+  const list = [...allServices].sort((a, b) => a.localeCompare(b));
+
+  for (const name of list) {
+    const id = `adminSvc_${name.replaceAll(" ", "_").replaceAll("&", "and")}`;
+
+    const label = document.createElement("label");
+    label.htmlFor = id;
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.id = id;
+    cb.checked = enabledServices.has(name);
+
+    const text = document.createElement("div");
+    text.textContent = name;
+
+    label.appendChild(cb);
+    label.appendChild(text);
+    adminServicesList.appendChild(label);
+  }
+
+  if (servicesSaveHint) servicesSaveHint.textContent = "";
+  if (addServiceHint) addServiceHint.textContent = "";
+}
+
+async function saveEnabledServicesFromAdmin() {
+  if (!cachedIsAdmin || !adminServicesList) return;
+
+  const checks = [...adminServicesList.querySelectorAll('input[type="checkbox"]')];
+  const chosen = checks
+    .filter(c => c.checked)
+    .map(c => c.parentElement?.innerText?.trim())
+    .filter(Boolean);
+
+  if (!chosen.length) {
+    if (servicesSaveHint) servicesSaveHint.textContent = "Pick at least one service.";
+    return;
+  }
+
+  await setDoc(settingsServicesRef, {
+    allServices: [...allServices].sort((a, b) => a.localeCompare(b)),
+    enabledServices: chosen.sort((a, b) => a.localeCompare(b)),
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null,
+    updatedByEmail: (auth.currentUser?.email || "").toLowerCase()
+  }, { merge: true });
+
+  if (servicesSaveHint) servicesSaveHint.textContent = `Saved (${chosen.length} enabled). ✅`;
+}
+
+async function addNewService() {
+  if (!cachedIsAdmin) return;
+  if (!newServiceInput) return;
+
+  const raw = newServiceInput.value.trim();
+  if (!raw) return;
+
+  // normalise spaces + capitalise first letter (keeps rest as typed)
+  const name = raw.replace(/\s+/g, " ").replace(/^./, c => c.toUpperCase());
+
+  if (allServices.has(name)) {
+    if (addServiceHint) addServiceHint.textContent = "That service already exists.";
+    return;
+  }
+
+  const updatedAll = [...allServices, name].sort((a, b) => a.localeCompare(b));
+  const updatedEnabled = [...enabledServices, name].sort((a, b) => a.localeCompare(b));
+
+  await setDoc(settingsServicesRef, {
+    allServices: updatedAll,
+    enabledServices: updatedEnabled,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null,
+    updatedByEmail: (auth.currentUser?.email || "").toLowerCase()
+  }, { merge: true });
+
+  newServiceInput.value = "";
+  if (addServiceHint) addServiceHint.textContent = `Added “${name}” ✅`;
+}
+
+saveServicesBtn?.addEventListener("click", saveEnabledServicesFromAdmin);
+addServiceBtn?.addEventListener("click", addNewService);
+newServiceInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    addNewService();
+  }
+});
+
+// -------------------- SLOT DROPDOWN --------------------
+async function refreshSlotDropdown(dateStr) {
+  if (!dateStr || !bookTime) return;
+
   const bookingsQ = query(
     collection(db, "bookings"),
     where("date", "==", dateStr),
     where("status", "==", "active")
   );
 
-  // Get blocked slots for this date
   const blockedQ = query(
     collection(db, "blockedSlots"),
     where("date", "==", dateStr)
@@ -283,7 +512,7 @@ async function refreshSlotDropdown(dateStr) {
     bookTime.appendChild(opt);
   }
 
-  slotHint.textContent = available ? `${available} slots available` : "No slots available.";
+  if (slotHint) slotHint.textContent = available ? `${available} slots available` : "No slots available.";
 
   const firstEnabled = [...bookTime.options].find(o => !o.disabled);
   if (firstEnabled) bookTime.value = firstEnabled.value;
@@ -300,22 +529,27 @@ function populateBlockTimes() {
   }
 }
 
-// ---------- booking submit (transaction prevents double booking) ----------
+// -------------------- BOOKING SUBMIT --------------------
 bookingForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  bookError.textContent = "";
-  bookSuccess.textContent = "";
+  if (bookError) bookError.textContent = "";
+  if (bookSuccess) bookSuccess.textContent = "";
 
   const user = auth.currentUser;
   if (!user) return (bookError.textContent = "Not logged in.");
 
-  const dateStr = bookDate.value;
-  const timeStr = bookTime.value;
-  const notes = bookNotes.value.trim();
+  const dateStr = bookDate?.value || "";
+  const timeStr = bookTime?.value || "";
+  const durationMins = Number(bookDuration?.value || 0);
+  const servicesArr = [...selectedServices];
+  const notes = (bookNotes?.value || "").trim();
 
   if (!dateStr) return (bookError.textContent = "Pick a date.");
   if (!timeStr) return (bookError.textContent = "Pick a time.");
+  if (!servicesArr.length) return (bookError.textContent = "Pick at least one service.");
+  if (!durationMins || durationMins < 5) return (bookError.textContent = "Pick a length.");
 
+  // past time check
   const chosen = parseDateInput(dateStr);
   const [hh, mm] = timeStr.split(":").map(Number);
   chosen.setHours(hh, mm, 0, 0);
@@ -339,6 +573,8 @@ bookingForm?.addEventListener("submit", async (e) => {
         id,
         date: dateStr,
         time: timeStr,
+        services: servicesArr,
+        durationMins,
         notes: notes || "",
         status: "active",
         userId: user.uid,
@@ -351,26 +587,39 @@ bookingForm?.addEventListener("submit", async (e) => {
     await refreshSlotDropdown(dateStr);
 
     const emailRes = await trySendEmail({
-      date: dateStr,
-      time: timeStr,
-      notes,
-      userName: user.displayName || "Unknown",
-      userEmail: (user.email || "").toLowerCase()
+      to_email: OWNER_EMAIL,
+      company_name: "Ripple Relaxation",
+      booker_name: user.displayName || "Unknown",
+      booker_email: (user.email || "").toLowerCase(),
+      booked_date: dateStr,
+      booked_time: timeStr,
+      booked_services: servicesArr.join(", "),
+      booked_duration: `${durationMins} minutes`,
+      booked_notes: notes || "(none)",
+      reply_to: (user.email || "").toLowerCase(),
     });
 
-    bookSuccess.textContent = emailRes.ok
-      ? "Booked! Email sent ✅"
-      : `Booked! ✅ (Email: ${emailRes.reason})`;
+    if (bookSuccess) {
+      bookSuccess.textContent = emailRes.ok
+        ? "Booked! Email sent ✅"
+        : `Booked! ✅ (Email: ${emailRes.reason})`;
+    }
 
-    bookNotes.value = "";
+    // reset services selection
+    selectedServices.clear();
+    updateServicesButton();
+    openServicesMenu(false);
+
+    if (bookNotes) bookNotes.value = "";
+
     await updateStats();
   } catch (err) {
-    bookError.textContent = err?.message || String(err);
+    if (bookError) bookError.textContent = err?.message || String(err);
     await refreshSlotDropdown(dateStr);
   }
 });
 
-// ---------- my bookings realtime ----------
+// -------------------- MY BOOKINGS (Realtime) --------------------
 function subscribeMyBookings(uid) {
   if (unsubMyBookings) unsubMyBookings();
 
@@ -382,6 +631,8 @@ function subscribeMyBookings(uid) {
   );
 
   unsubMyBookings = onSnapshot(qMine, (snap) => {
+    if (!myBookingsList) return;
+
     const items = snap.docs.map(d => d.data())
       .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 
@@ -392,12 +643,14 @@ function subscribeMyBookings(uid) {
     }
 
     for (const b of items) {
+      const servicesText = Array.isArray(b.services) ? b.services.join(", ") : "";
       const el = document.createElement("div");
       el.className = "item";
       el.innerHTML = `
         <div class="meta">
           <div class="title">${escapeHtml(b.date)} at ${escapeHtml(b.time)}</div>
           <div class="badge">${escapeHtml(b.status)}</div>
+          <div class="sub">${escapeHtml(servicesText)} • ${escapeHtml(String(b.durationMins || ""))} mins</div>
           ${b.notes ? `<div class="sub">Notes: ${escapeHtml(b.notes)}</div>` : ""}
         </div>
         <div class="actions">
@@ -416,20 +669,20 @@ function subscribeMyBookings(uid) {
         if (snap.data().userId !== auth.currentUser.uid) return;
 
         await updateDoc(ref, { status: "cancelled", cancelledAt: serverTimestamp() });
-        await refreshSlotDropdown(bookDate.value);
+        await refreshSlotDropdown(bookDate?.value || "");
         await updateStats();
       });
     });
   });
 }
 
-// ---------- admin list (query + filter) ----------
+// -------------------- ADMIN: BOOKINGS LIST --------------------
 async function renderAdminList() {
-  if (!cachedIsAdmin) return;
+  if (!cachedIsAdmin || !adminBookingsList) return;
 
-  const qText = (adminSearch.value || "").trim().toLowerCase();
-  const status = adminStatus.value;
-  const date = adminDate.value;
+  const qText = (adminSearch?.value || "").trim().toLowerCase();
+  const status = adminStatus?.value || "all";
+  const date = adminDate?.value || "";
 
   const snap = await getDocs(query(collection(db, "bookings"), orderBy("date", "desc"), limit(800)));
   let items = snap.docs.map(d => d.data());
@@ -438,7 +691,8 @@ async function renderAdminList() {
   if (date) items = items.filter(b => b.date === date);
   if (qText) {
     items = items.filter(b => {
-      const blob = `${b.userName} ${b.userEmail} ${b.notes || ""} ${b.date} ${b.time}`.toLowerCase();
+      const servicesText = Array.isArray(b.services) ? b.services.join(", ") : "";
+      const blob = `${b.userName} ${b.userEmail} ${servicesText} ${b.durationMins || ""} ${b.notes || ""} ${b.date} ${b.time}`.toLowerCase();
       return blob.includes(qText);
     });
   }
@@ -452,6 +706,7 @@ async function renderAdminList() {
   }
 
   for (const b of items) {
+    const servicesText = Array.isArray(b.services) ? b.services.join(", ") : "";
     const el = document.createElement("div");
     el.className = "item";
     el.innerHTML = `
@@ -459,6 +714,7 @@ async function renderAdminList() {
         <div class="title">${escapeHtml(b.date)} at ${escapeHtml(b.time)}</div>
         <div class="badge">${escapeHtml(b.status)}</div>
         <div class="sub">${escapeHtml(b.userName)} • ${escapeHtml(b.userEmail)}</div>
+        <div class="sub">${escapeHtml(servicesText)} • ${escapeHtml(String(b.durationMins || ""))} mins</div>
         ${b.notes ? `<div class="sub">Notes: ${escapeHtml(b.notes)}</div>` : ""}
       </div>
       <div class="actions">
@@ -472,7 +728,7 @@ async function renderAdminList() {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.adminCancel;
       await updateDoc(doc(db, "bookings", id), { status: "cancelled", cancelledAt: serverTimestamp() });
-      await refreshSlotDropdown(bookDate.value);
+      await refreshSlotDropdown(bookDate?.value || "");
       await updateStats();
     });
   });
@@ -486,75 +742,30 @@ function subscribeAllBookingsIfAdmin() {
   unsubAllBookings = onSnapshot(qAll, () => renderAdminList());
 }
 
-// ---------- stats ----------
-async function updateStats() {
-  try {
-    const activeSnap = await getDocs(query(collection(db, "bookings"), where("status", "==", "active")));
-    const blockedSnap = await getDocs(query(collection(db, "blockedSlots"), limit(1000)));
-    statActive.textContent = String(activeSnap.size);
-    statBlocked.textContent = String(blockedSnap.size);
-  } catch (e) {
-    console.warn("Stats failed:", e);
-  }
-}
-
-// ---------- admin block/unblock ----------
-blockSlotBtn?.addEventListener("click", async () => {
-  if (!cachedIsAdmin) return;
-
-  const d = blockDate.value;
-  const t = blockTime.value;
-  if (!d || !t) return;
-
-  const id = slotId(d, t);
-  await setDoc(doc(db, "blockedSlots", id), {
-    id,
-    date: d,
-    time: t,
-    blockedBy: auth.currentUser.uid,
-    blockedByEmail: (auth.currentUser.email || "").toLowerCase(),
-    createdAt: serverTimestamp()
-  });
-
-  blockHint.textContent = `Blocked ${d} ${t}.`;
-  await refreshSlotDropdown(bookDate.value);
-  await updateStats();
-});
-
-unblockSlotBtn?.addEventListener("click", async () => {
-  if (!cachedIsAdmin) return;
-
-  const d = blockDate.value;
-  const t = blockTime.value;
-  if (!d || !t) return;
-
-  const id = slotId(d, t);
-  await deleteDoc(doc(db, "blockedSlots", id));
-
-  blockHint.textContent = `Unblocked ${d} ${t}.`;
-  await refreshSlotDropdown(bookDate.value);
-  await updateStats();
-});
-
-// Admin filters & export
+// Admin filters
 [adminSearch, adminStatus, adminDate].forEach(el => el?.addEventListener("input", renderAdminList));
 adminClearFilters?.addEventListener("click", () => {
+  if (!adminSearch || !adminStatus || !adminDate) return;
   adminSearch.value = "";
   adminStatus.value = "all";
   adminDate.value = "";
   renderAdminList();
 });
 
+// Admin export CSV
 adminExportCsv?.addEventListener("click", async () => {
   if (!cachedIsAdmin) return;
 
   const snap = await getDocs(query(collection(db, "bookings"), orderBy("date", "asc"), limit(5000)));
   const rows = snap.docs.map(d => d.data());
 
-  const header = ["id","status","date","time","userName","userEmail","notes"];
+  const header = ["id","status","date","time","durationMins","services","userName","userEmail","notes"];
   const csv = [
     header.join(","),
-    ...rows.map(r => header.map(k => `"${String(r[k] ?? "").replaceAll('"','""')}"`).join(","))
+    ...rows.map(r => header.map(k => {
+      const val = (k === "services" && Array.isArray(r.services)) ? r.services.join(" | ") : (r[k] ?? "");
+      return `"${String(val).replaceAll('"','""')}"`
+    }).join(","))
   ].join("\n");
 
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -568,21 +779,86 @@ adminExportCsv?.addEventListener("click", async () => {
   URL.revokeObjectURL(url);
 });
 
-// Date changes
+// -------------------- ADMIN: BLOCK/UNBLOCK --------------------
+blockSlotBtn?.addEventListener("click", async () => {
+  if (!cachedIsAdmin) return;
+
+  const d = blockDate?.value || "";
+  const t = blockTime?.value || "";
+  if (!d || !t) return;
+
+  const id = slotId(d, t);
+  await setDoc(doc(db, "blockedSlots", id), {
+    id,
+    date: d,
+    time: t,
+    blockedBy: auth.currentUser?.uid || null,
+    blockedByEmail: (auth.currentUser?.email || "").toLowerCase(),
+    createdAt: serverTimestamp()
+  });
+
+  if (blockHint) blockHint.textContent = `Blocked ${d} ${t}.`;
+  await refreshSlotDropdown(bookDate?.value || "");
+  await updateStats();
+});
+
+unblockSlotBtn?.addEventListener("click", async () => {
+  if (!cachedIsAdmin) return;
+
+  const d = blockDate?.value || "";
+  const t = blockTime?.value || "";
+  if (!d || !t) return;
+
+  const id = slotId(d, t);
+  await deleteDoc(doc(db, "blockedSlots", id));
+
+  if (blockHint) blockHint.textContent = `Unblocked ${d} ${t}.`;
+  await refreshSlotDropdown(bookDate?.value || "");
+  await updateStats();
+});
+
+function populateBlockTimesOnLoad() {
+  populateBlockTimes();
+}
+
+// -------------------- STATS --------------------
+async function updateStats() {
+  try {
+    if (!statActive || !statBlocked) return;
+    const activeSnap = await getDocs(query(collection(db, "bookings"), where("status", "==", "active")));
+    const blockedSnap = await getDocs(query(collection(db, "blockedSlots"), limit(3000)));
+    statActive.textContent = String(activeSnap.size);
+    statBlocked.textContent = String(blockedSnap.size);
+  } catch {
+    // ignore
+  }
+}
+
+// -------------------- DATE CHANGE --------------------
 bookDate?.addEventListener("change", async () => {
-  bookError.textContent = "";
-  bookSuccess.textContent = "";
+  if (bookError) bookError.textContent = "";
+  if (bookSuccess) bookSuccess.textContent = "";
   await refreshSlotDropdown(bookDate.value);
 });
 
-// ---------- signup/login ----------
+// -------------------- DASHBOARD TABS --------------------
+dashTabs?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".seg");
+  if (!btn) return;
+
+  const which = btn.dataset.view;
+  if (which === "admin" && !cachedIsAdmin) return;
+  setDashView(which);
+});
+
+// -------------------- SIGNUP / LOGIN / LOGOUT --------------------
 signupForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  signupError.textContent = "";
+  if (signupError) signupError.textContent = "";
 
-  const name = signupName.value.trim();
-  const email = signupEmail.value.trim();
-  const pass = signupPass.value;
+  const name = (signupName?.value || "").trim();
+  const email = (signupEmail?.value || "").trim();
+  const pass = signupPass?.value || "";
 
   if (!name) return (signupError.textContent = "Please enter your name.");
   if (!email) return (signupError.textContent = "Please enter an email.");
@@ -597,7 +873,6 @@ signupForm?.addEventListener("submit", async (e) => {
       email: (cred.user.email || "").toLowerCase(),
       createdAt: serverTimestamp(),
     }, { merge: true });
-
   } catch (err) {
     signupError.textContent = err?.message || String(err);
   }
@@ -605,10 +880,10 @@ signupForm?.addEventListener("submit", async (e) => {
 
 loginForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  loginError.textContent = "";
+  if (loginError) loginError.textContent = "";
 
-  const email = loginEmail.value.trim();
-  const pass = loginPass.value;
+  const email = (loginEmail?.value || "").trim();
+  const pass = loginPass?.value || "";
 
   try {
     await signInWithEmailAndPassword(auth, email, pass);
@@ -621,11 +896,13 @@ logoutBtn?.addEventListener("click", async () => {
   await signOut(auth);
 });
 
-// ---------- auth state ----------
+// -------------------- AUTH STATE --------------------
 onAuthStateChanged(auth, async (user) => {
-  // cleanup subscriptions
+  // cleanup subs
   if (unsubMyBookings) { unsubMyBookings(); unsubMyBookings = null; }
   if (unsubAllBookings) { unsubAllBookings(); unsubAllBookings = null; }
+  if (unsubServicesSettings) { unsubServicesSettings(); unsubServicesSettings = null; }
+
   cachedIsAdmin = false;
 
   if (!user) {
@@ -636,30 +913,50 @@ onAuthStateChanged(auth, async (user) => {
     return;
   }
 
-  // Determine admin from Firestore (admins/{email})
   await checkAdmin(user);
 
+  // Everyone subscribes so booking dropdown always matches admin setting
+  unsubServicesSettings = subscribeServicesSettings();
+
+  // show dashboard
   authView.hidden = true;
   dashView.hidden = false;
   topActions.hidden = false;
 
   adminTab.hidden = !cachedIsAdmin;
 
-  whoami.textContent = `${user.displayName || "User"}${cachedIsAdmin ? " • Admin" : ""} • ${user.email}`;
+  if (whoami) whoami.textContent = `${user.displayName || "User"}${cachedIsAdmin ? " • Admin" : ""} • ${user.email}`;
 
+  // set date defaults
   const today = new Date();
-  bookDate.min = toDateInputValue(today);
-  if (!bookDate.value) bookDate.value = toDateInputValue(today);
-  if (!blockDate.value) blockDate.value = toDateInputValue(today);
+  if (bookDate) {
+    bookDate.min = toDateInputValue(today);
+    if (!bookDate.value) bookDate.value = toDateInputValue(today);
+  }
+  if (blockDate && !blockDate.value) blockDate.value = toDateInputValue(today);
 
   setTodayLine();
-  populateBlockTimes();
 
-  await refreshSlotDropdown(bookDate.value);
+  // dropdowns + menus
+  populateDurationDropdown();
+  openServicesMenu(false);
+  updateServicesButton();
+  renderServicesMenu();
+
+  populateBlockTimesOnLoad();
+
+  await refreshSlotDropdown(bookDate?.value || "");
   await updateStats();
 
+  // my bookings
   subscribeMyBookings(user.uid);
-  subscribeAllBookingsIfAdmin();
+
+  // admin extras
+  if (cachedIsAdmin) {
+    renderAdminServicesUI();
+    subscribeAllBookingsIfAdmin();
+    renderAdminList();
+  }
 
   setDashView("book");
 });

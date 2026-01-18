@@ -10,7 +10,21 @@ window.RR_CONFIG = {
     storageBucket: "ripple-21297.firebasestorage.app",
     messagingSenderId: "785096023018",
     appId: "1:785096023018:web:891dd676aa4b40f66b7093",
-   measurementId: "G-TWB5KR1CZH"
+   measurementId: "G-TWB5KR1CZH",
+
+   SERVICES: [
+    "Head Massage",
+    "Spray",
+    "Eye Mask",
+    "Steam Eye Mask",
+],
+
+DURATION: {
+  MIN_MINUTES: 5,
+  MAX_MINUTES: 60,
+  STEP_MINUTES: 5
+},
+
 },
 
   // EmailJS (optional). If left blank, app still works; no email sent.

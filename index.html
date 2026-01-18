@@ -103,6 +103,25 @@
               Time
               <select id="bookTime" required></select>
             </label>
+            <label>
+              Services
+              <div class="multiSelect" id="servicesWrap">
+                <button class="multiBtn" type="button" id="servicesBtn">
+                  Select services…
+                </button>
+
+              <div class="multiMenu" id="servicesMenu" hidden></div>
+
+              <!-- hidden input just for "required" style logic -->
+              <input type="text" id="servicesHidden" class="visuallyHidden" required />
+              </div>
+            </label>
+
+
+            <label>
+              Length
+              <select id="bookDuration" required></select>
+              </label>
 
             <label class="span2">
               Notes (optional)
@@ -141,6 +160,34 @@
           <div class="cardHead">
             <h2>Admin dashboard</h2>
             <p class="muted">All bookings + block slots + export CSV.</p>
+          </div>
+          <div class="softCard">
+            <h3>Available services</h3>
+            <p class="muted">Choose what customers can book right now. Saves instantly across devices.</p>
+
+            <div class="servicesAdmin" id="adminServicesList"></div>
+
+            <div class="row" style="margin-top:12px;">
+              <button class="btn primary" type="button" id="saveServicesBtn">Save services</button>
+              <span class="hint" id="servicesSaveHint"></span>
+            </div>
+            <div class="softCard" style="margin-top:16px;">
+              <h4>Add new service</h4>
+
+              <div class="row">
+                <input
+                  type="text"
+                  id="newServiceInput"
+                  placeholder="e.g. Heated Blanket"
+                />
+                <button class="btn ghost" type="button" id="addServiceBtn">
+                  Add
+                </button>
+              </div>
+
+              <div class="hint" id="addServiceHint"></div>
+            </div>
+
           </div>
 
           <div class="adminGrid">
