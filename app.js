@@ -42,7 +42,7 @@ if (!CFG.FIREBASE?.apiKey) {
 const OWNER_EMAIL = (CFG.OWNER_EMAIL || CFG.BROTHER_EMAIL || "").trim();
 const EMAILCFG = CFG.EMAILJS || { ENABLED: true, PUBLIC_KEY: "", SERVICE_ID: "", TEMPLATE_ID: "" };
 
-const SLOT = CFG.SLOTS || { START_HOUR: 9, END_HOUR: 17, STEP_MIN: 30 };
+const SLOT = CFG.SLOTS || { START_HOUR: 7, END_HOUR: 21, STEP_MIN: 30 };
 const DURATION = CFG.DURATION || { MIN_MINUTES: 5, MAX_MINUTES: 120, STEP_MINUTES: 5 };
 
 // Default master list (your requested set). Admin can add more later.
@@ -949,3 +949,4 @@ onAuthStateChanged(auth, async (user) => {
 
   setDashView("book");
 });
+
