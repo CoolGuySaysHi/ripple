@@ -626,54 +626,43 @@ function subscribeMyBookings(uid) {
   const qMine = query(
     collection(db, "bookings"),
     where("userId", "==", uid),
-    orderBy("date", "desc"),
     limit(200)
   );
 
-  unsubMyBookings = onSnapshot(qMine, (snap) => {
-    if (!myBookingsList) return;
+  unsubMyBookings = onSnapshot(
+    qMine,
+    (snap) => {
+      const items = snap.docs.map(d => d.data());
 
-    const items = snap.docs.map(d => d.data())
-      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+      // Sort client-side by date+time
+      items.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 
-    myBookingsList.innerHTML = "";
-    if (!items.length) {
-      myBookingsList.innerHTML = `<div class="muted">No bookings yet.</div>`;
-      return;
+      myBookingsList.innerHTML = "";
+      if (!items.length) {
+        myBookingsList.innerHTML = `<div class="muted">No bookings yet.</div>`;
+        return;
+      }
+
+      for (const b of items) {
+        const servicesText = Array.isArray(b.services) ? b.services.join(", ") : "";
+        const el = document.createElement("div");
+        el.className = "item";
+        el.innerHTML = `
+          <div class="meta">
+            <div class="title">${escapeHtml(b.date)} at ${escapeHtml(b.time)}</div>
+            <div class="badge">${escapeHtml(b.status)}</div>
+            <div class="sub">${escapeHtml(servicesText)} • ${escapeHtml(String(b.durationMins || ""))} mins</div>
+            ${b.notes ? `<div class="sub">Notes: ${escapeHtml(b.notes)}</div>` : ""}
+          </div>
+        `;
+        myBookingsList.appendChild(el);
+      }
+    },
+    (err) => {
+      console.error("My bookings listener error:", err);
+      myBookingsList.innerHTML = `<div class="muted">Couldn’t load your bookings (check console).</div>`;
     }
-
-    for (const b of items) {
-      const servicesText = Array.isArray(b.services) ? b.services.join(", ") : "";
-      const el = document.createElement("div");
-      el.className = "item";
-      el.innerHTML = `
-        <div class="meta">
-          <div class="title">${escapeHtml(b.date)} at ${escapeHtml(b.time)}</div>
-          <div class="badge">${escapeHtml(b.status)}</div>
-          <div class="sub">${escapeHtml(servicesText)} • ${escapeHtml(String(b.durationMins || ""))} mins</div>
-          ${b.notes ? `<div class="sub">Notes: ${escapeHtml(b.notes)}</div>` : ""}
-        </div>
-        <div class="actions">
-          ${b.status === "active" ? `<button class="btn ghost" data-cancel="${escapeHtml(b.id)}">Cancel</button>` : ""}
-        </div>
-      `;
-      myBookingsList.appendChild(el);
-    }
-
-    myBookingsList.querySelectorAll("[data-cancel]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const id = btn.dataset.cancel;
-        const ref = doc(db, "bookings", id);
-        const snap = await getDoc(ref);
-        if (!snap.exists()) return;
-        if (snap.data().userId !== auth.currentUser.uid) return;
-
-        await updateDoc(ref, { status: "cancelled", cancelledAt: serverTimestamp() });
-        await refreshSlotDropdown(bookDate?.value || "");
-        await updateStats();
-      });
-    });
-  });
+  );
 }
 
 // -------------------- ADMIN: BOOKINGS LIST --------------------
